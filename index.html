@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Kerja Tim Publikasi</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased min-h-screen">
+
+    <nav class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 px-6 py-4 shadow-xl">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-chart-pie text-xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                        Monitoring Kerja Tim Publikasi
+                    </h1>
+                    <p class="text-xs text-slate-400">Analisa Beban Kerja Terpadu (Kaldik + B.A.U)</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <div class="relative w-full sm:w-48">
+                    <select id="filterBulan" onchange="prosesDanTampilkanData()" class="w-full bg-slate-800 border border-slate-700 text-slate-200 py-2 px-4 pr-8 rounded-xl appearance-none focus:outline-none focus:border-blue-500 text-sm transition-all cursor-pointer shadow-inner">
+                        <option value="ALL">Semua Bulan (Kumulatif)</option>
+                        <option value="07">Juli 2026</option>
+                        <option value="08">Agustus 2026</option>
+                        <option value="09">September 2026</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                        <i class="fa-solid fa-chevron-down text-xs"></i>
+                    </div>
+                </div>
+                <button onclick="muatData()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-200 py-2 px-4 rounded-xl text-sm font-medium transition-all flex items-center gap-2 cursor-pointer shadow-md active:scale-95">
+                    <i class="fa-solid fa-rotate text-xs text-blue-400"></i>
+                    <span>Refresh Data</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+        <div id="loading" class="flex flex-col items-center justify-center py-24 gap-4">
+            <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+            <p class="text-sm text-slate-400 font-medium">Sinkronisasi data Google Sheets...</p>
+        </div>
+
+        <div id="dashboardContent" class="hidden grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <div class="lg:col-span-2 flex flex-col gap-6">
+                <div class="bg-slate-850 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 class="text-md font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-users text-blue-400 text-sm"></i>
+                                Analisis Jam Kerja Personel Inti
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Urutan berdasarkan beban kontribusi tertinggi</p>
+                        </div>
+                        <span id="infoKuota" class="text-xs font-semibold px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg">
+                            MAKS: 160 JAM/BULAN
+                        </span>
+                    </div>
+
+                    <div id="containerPersonel" class="flex flex-col gap-6"></div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-6">
+                <div class="bg-slate-850 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                    <h2 class="text-md font-bold text-slate-200 flex items-center gap-2 mb-2">
+                        <i class="fa-solid fa-building-flag text-amber-400 text-sm"></i>
+                        Petugas Luar / Unit Mandiri
+                    </h2>
+                    <p class="text-xs text-slate-400 mb-6">Tugas lapangan dari Kaldik yang dihandle langsung oleh perwakilan unit luar.</p>
+                    
+                    <div id="containerUnit" class="flex flex-col gap-3"></div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // GANTI DENGAN URL WEB APP GOOGLE APPS SCRIPT ANDA YANG BARU
+        const gasWebid = "URL_WEB_APP_ANDA_DI_SINI"; 
+
+        let rawDataGlobal = null;
+        const listPersonelInti = ["Indri", "Wahyu", "Dodai", "Nia", "Yesi", "Magang"];
+
+        // Peta konversi teks bulan ke angka indeks untuk pencocokan filter
+        const petaBulan = {
+            "JAN": "01", "JANUARI": "01", "FEB": "02", "FEBRUARI": "02",
+            "MAR": "03", "MARET": "03", "APR": "04", "APRIL": "04",
+            "MEI": "05", "JUN": "06", "JUNI": "06", "JUL": "07", "JULI": "07",
+            "AGT": "08", "AGUSTUS": "08", "SEP": "09", "SEPTEMBER": "09",
+            "OKT": "10", "OKTOBER": "10", "NOV": "11", "NOVEMBER": "11",
+            "DES": "12", "DESEMBER": "12"
+        };
+
+        async function muatData() {
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('dashboardContent').classList.add('hidden');
+            
+            try {
+                const response = await fetch(gasWebid);
+                rawDataGlobal = await response.json();
+                prosesDanTampilkanData();
+            } catch (error) {
+                console.error("Gagal mengambil data:", error);
+                alert("Gagal terhubung ke Google Sheets. Pastikan URL Web App sudah benar dan sudah di-deploy sebagai 'Anyone'.");
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('dashboardContent').classList.remove('hidden');
+            }
+        }
+
+        // Fungsi pembantu untuk merapikan teks durasi/waktu menjadi angka murni
+        function bersihkanJam(teks) {
+            if (!teks) return 0;
+            let angka = teks.toString().toLowerCase().replace(/jam/g, '').replace(/,/g, '.').trim();
+            let hasil = parseFloat(angka);
+            return isNaN(hasil) ? 0 : hasil;
+        }
+
+        // Fungsi merapikan string tanggal lepasan dari GAS menjadi format cantik
+        function formatTanggalCantik(strTanggal) {
+            if(!strTanggal) return "";
+            if(strTanggal.includes("GMT") || strTanggal.includes("-")) {
+                try {
+                    let d = new Date(strTanggal);
+                    if(!isNaN(d.getTime())) {
+                        const opsi = { day: '2-digit', month: 'short', year: 'numeric' };
+                        return d.toLocaleDateString('id-ID', opsi);
+                    }
+                } catch(e) {}
+            }
+            return strTanggal;
+        }
+
+        function prosesDanTampilkanData() {
+            if (!rawDataGlobal) return;
+
+            const filterBulan = document.getElementById('filterBulan').value;
+            const isKumulatif = (filterBulan === "ALL");
+            
+            // Atur Label Batas Kuota di Atas
+            document.getElementById('infoKuota').innerText = isKumulatif ? "MODE: RATA-RATA BULANAN" : "MAKS: 160 JAM/BULAN";
+
+            // Struktur penampung hitungan akhir per orang
+            let akumulasiInti = {};
+            listPersonelInti.forEach(nama => {
+                akumulasiInti[nama] = { totalJam: 0, log: [], jumlahBulanAktif: new Set() };
+            });
+            let akumulasiUnit = {};
+
+            // 1. PROSES DATA MASTER KALDIK
+            if (rawDataGlobal.kaldik && Array.isArray(rawDataGlobal.kaldik)) {
+                rawDataGlobal.kaldik.forEach(item => {
+                    let tanggalRaw = item["Tanggal/Bulan"] || "";
+                    let bulanData = "";
+
+                    // Deteksi bulan dari string tanggal (Format: yyyy-MM-dd atau teks bebas)
+                    if (tanggalRaw.includes("-")) {
+                        bulanData = tanggalRaw.split("-")[1]; 
+                    } else {
+                        let kata = tanggalRaw.toUpperCase().split(/\s+/);
+                        for (let k of kata) {
+                            if (petaBulan[k]) { bulanData = petaBulan[k]; break; }
+                        }
+                    }
+
+                    // Jalankan filter bulan jika tidak memilih mode kumulatif
+                    if (!isKumulatif && bulanData !== filterBulan) return;
+
+                    // Hitung durasi pengerjaan Kaldik
+                    let durasi = bersihkanJam(item["Durasi"] || item["Waktu"]);
+                    let namaProyek = item["Nama Proyek"] || "Kegiatan Kaldik";
+                    let listPicRaw = item["PIC"] || item["Penanggung Jawab"] || "";
+
+                    if (bulanData) {
+                        listPersonelInti.forEach(p => {
+                            if (listPicRaw.toUpperCase().includes(p.toUpperCase())) {
+                                akumulasiInti[p].jumlahBulanAktif.add(bulanData);
+                            }
+                        });
+                    }
+
+                    // Cek PIC Internal vs Unit Mandiri
+                    let diproses = false;
+                    listPersonelInti.forEach(p => {
+                        if (listPicRaw.toUpperCase().includes(p.toUpperCase())) {
+                            akumulasiInti[p].totalJam += durasi;
+                            akumulasiInti[p].log.push(`[Kaldik] ${namaProyek} (+${durasi} Jam)`);
+                            diproses = true;
+                        }
+                    });
+
+                    // Jika tidak dihandle personel inti, masukkan ke kelompok Unit Mandiri
+                    if (!diproses && listPicRaw.trim() !== "") {
+                        let namaUnit = listPicRaw.trim();
+                        if (!akumulasiUnit[namaUnit]) akumulasiUnit[namaUnit] = { totalJam: 0, count: 0 };
+                        akumulasiUnit[namaUnit].totalJam += durasi;
+                        akumulasiUnit[namaUnit].count += 1;
+                    }
+                });
+            }
+
+            // 2. PROSES DATA B.A.U PERSONEL Masing-masing Tab
+            if (rawDataGlobal.bau && Array.isArray(rawDataGlobal.bau)) {
+                rawDataGlobal.bau.forEach(item => {
+                    let pic = item.pic;
+                    if (!akumulasiInti[pic]) return;
+
+                    let targetBulanRaw = (item.target_bulan || "").toUpperCase().trim();
+                    let bulanBau = petaBulan[targetBulanRaw] || "";
+
+                    // Fitur Penyaringan Pintar (Smart Filter BAU)
+                    if (!isKumulatif) {
+                        if (targetBulanRaw !== "RUTIN" && targetBulanRaw !== "SEMUA" && targetBulanRaw !== "") {
+                            if (bulanBau !== filterBulan) return; // Sembunyikan jika bulan berbeda
+                        }
+                    }
+
+                    let waktu = bersihkanJam(item.waktu_raw);
+                    let frekuensi = parseFloat(item.frekuensi) || 1;
+                    let subtotal = waktu * frekuensi;
+                    
+                    let tglLog = formatTanggalCantik(item.waktu_raw || item.project);
+
+                    if (isKumulatif && bulanBau) {
+                        akumulasiInti[pic].jumlahBulanAktif.add(bulanBau);
+                    } else if (!isKumulatif) {
+                        akumulasiInti[pic].jumlahBulanAktif.add(filterBulan);
+                    }
+
+                    akumulasiInti[pic].totalJam += subtotal;
+                    akumulasiInti[pic].log.push(`[BAU] ${tglLog}: ${item.project} (${item.todo}) (+${subtotal} Jam)`);
+                });
+            }
+
+            // 3. RENDER KARTU & URUTKAN BERDASARKAN BEBAN TERTINGGI (Workload Ranking)
+            const containerInti = document.getElementById('containerPersonel');
+            containerInti.innerHTML = "";
+
+            // Ubah objek ke bentuk array untuk memudahkan penyortiran
+            let arrayInti = Object.keys(akumulasiInti).map(nama => {
+                let data = akumulasiInti[nama];
+                let totalAsli = data.totalJam;
+                let jumlahBulan = data.jumlahBulanAktif.size || 1;
+                
+                // Jika Semua Bulan dipilih, hitung rata-rata
+                let jamTampilan = isKumulatif ? (totalAsli / 3) : totalAsli; // Dibagi 3 sesuai jatah tarikan Juli, Agt, Sept
+
+                return { nama, jamTampilan, totalAsli, log: data.log };
+            });
+
+            // Urutkan dari jam tampilan paling besar ke terkecil
+            arrayInti.sort((a, b) => b.jamTampilan - a.jamTampilan);
+
+            // Tampilkan kartu hasil urutan
+            arrayInti.forEach(p => {
+                let persen = Math.min((p.jamTampilan / 160) * 100, 100);
+                
+                // Set Status Label Keamanan Beban Kerja
+                let statusBadge = `<span class="px-2.5 py-0.5 text-xs font-semibold rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Aman</span>`;
+                let barColor = "bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.4)]";
+
+                if (p.jamTampilan > 160) {
+                    statusBadge = `<span class="px-2.5 py-0.5 text-xs font-semibold rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">OVERLOAD</span>`;
+                    barColor = "bg-rose-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]";
+                } else if (p.jamTampilan > 130) {
+                    statusBadge = `<span class="px-2.5 py-0.5 text-xs font-semibold rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">Hampir Penuh</span>`;
+                    barColor = "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.4)]";
+                }
+
+                let infoJamBawah = isKumulatif 
+                    ? `<p class="text-xs text-slate-400 mt-1"><i class="fa-solid fa-layer-group text-slate-500 mr-1"></i> Total Kontribusi Makro: <span class="text-slate-200 font-semibold">${p.totalAsli.toFixed(0)} Jam</span> selama periode ini.</p>`
+                    : "";
+
+                let logTeks = p.log.length > 0 
+                    ? p.log.map(l => `<div class="text-xs text-slate-400 bg-slate-900/40 py-1.5 px-3 rounded-lg border border-slate-800/60 transition-all hover:border-slate-700/50">${l}</div>`).join('')
+                    : `<div class="text-xs text-slate-500 italic py-2">Tidak ada agenda pekerjaan bulan ini</div>`;
+
+                let labelJamUtama = isKumulatif 
+                    ? `<span class="text-lg font-black text-white">${p.jamTampilan.toFixed(0)}</span><span class="text-xs text-slate-400 font-normal"> / Rerata Bulan</span>`
+                    : `<span class="text-lg font-black text-white">${p.jamTampilan.toFixed(0)}</span><span class="text-xs text-slate-400 font-normal"> / 160 Jam</span>`;
+
+                let htmlKartu = `
+                    <div class="bg-slate-800/40 border border-slate-800/80 rounded-xl p-5 hover:bg-slate-800/70 transition-all duration-300">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-sm font-bold tracking-wide uppercase text-slate-100">${p.nama}</h3>
+                                ${statusBadge}
+                            </div>
+                            <div class="text-right">${labelJamUtama}</div>
+                        </div>
+                        
+                        <div class="w-full bg-slate-750 rounded-full h-2.5 overflow-hidden my-3 border border-slate-700/30">
+                            <div class="h-full rounded-full transition-all duration-500 ${barColor}" style="width: ${persen}%"></div>
+                        </div>
+                        ${infoJamBawah}
+
+                        <div class="mt-4 border-t border-slate-800/60 pt-3">
+                            <p class="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                                <i class="fa-solid fa-list-check text-xs text-blue-500"></i> LOG AKTIVITAS BULAN INI:
+                            </p>
+                            <div class="max-h-32 overflow-y-auto flex flex-col gap-1.5 pr-1 scrollbar-thin scrollbar-thumb-slate-700">
+                                ${logTeks}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                containerInti.innerHTML += htmlKartu;
+            });
+
+            // 4. RENDER KOLOM UNIT MANDIRI / PETUGAS LUAR
+            const containerUnit = document.getElementById('containerUnit');
+            containerUnit.innerHTML = "";
+
+            let listUnit = Object.keys(akumulasiUnit);
+            if (listUnit.length === 0) {
+                containerUnit.innerHTML = `<p class="text-xs text-slate-500 italic text-center py-6">Tidak ada penugasan luar pada periode ini.</p>`;
+            } else {
+                listUnit.forEach(unit => {
+                    let d = akumulasiUnit[unit];
+                    containerUnit.innerHTML += `
+                        <div class="bg-slate-800/30 border border-slate-800/60 rounded-xl p-3.5 flex justify-between items-center hover:bg-slate-800/50 transition-all">
+                            <div class="flex items-center gap-3">
+                                <div class="bg-slate-800 p-2 rounded-lg text-slate-400 text-xs">
+                                    <i class="fa-solid fa-user-shield"></i>
+                                </div>
+                                <div>
+                                    <h4 class="text-xs font-bold text-slate-300">${unit}</h4>
+                                    <p class="text-[10px] text-slate-500">${d.count} Liputan Terdaftar</p>
+                                </div>
+                            </div>
+                            <span class="text-xs font-bold bg-slate-800 border border-slate-700 text-slate-200 px-3 py-1 rounded-lg">
+                                ${d.totalJam} Jam
+                            </span>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        // Jalankan sinkronisasi data pertama kali saat halaman dibuka
+        window.onload = muatData;
+    </script>
+</body>
+</html>
